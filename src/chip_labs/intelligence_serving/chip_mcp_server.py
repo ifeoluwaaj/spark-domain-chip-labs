@@ -13,6 +13,7 @@ Zero external dependencies (stdlib + chip_labs siblings only).
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -340,6 +341,16 @@ class ChipMCPServer:
         except OSError as exc:
             return {"error": f"Cannot create directory: {exc}"}
 
+        # Path traversal protection: canonicalize and verify the directory
+        # is still under the chip's base path
+        try:
+            rw_dir_resolved = rw_dir.resolve(strict=False)
+            chip_path_resolved = chip.chip_path.resolve(strict=False)
+            if not str(rw_dir_resolved).startswith(str(chip_path_resolved) + os.sep):
+                return {"error": "Path traversal detected: feedback directory outside chip path"}
+        except (OSError, ValueError) as exc:
+            return {"error": f"Path validation failed: {exc}"}
+
         timestamp = datetime.now(timezone.utc)
         packet = {
             "packet_kind": "realworld_feedback",
@@ -354,6 +365,14 @@ class ChipMCPServer:
 
         filename = f"feedback_{timestamp.strftime('%Y%m%dT%H%M%SZ')}.json"
         filepath = rw_dir / filename
+
+        # Validate the final filepath is also within allowed directory
+        try:
+            filepath_resolved = filepath.resolve(strict=False)
+            if not str(filepath_resolved).startswith(str(chip_path_resolved) + os.sep):
+                return {"error": "Path traversal detected: feedback file outside chip path"}
+        except (OSError, ValueError) as exc:
+            return {"error": f"Path validation failed: {exc}"}
 
         try:
             filepath.write_text(json.dumps(packet, indent=2), encoding="utf-8")
