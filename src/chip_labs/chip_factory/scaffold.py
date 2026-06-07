@@ -108,6 +108,26 @@ def _parse_simple_yaml(text: str) -> dict[str, Any]:
                         nv = nv.strip().strip('"').strip("'")
                         if nv.startswith("[") and nv.endswith("]"):
                             nv = [x.strip().strip('"').strip("'") for x in nv[1:-1].split(",")]
+                        elif not nv:
+                            # Recursively parse deeper nesting
+                            sub_lines = []
+                            m = j + 1
+                            while m < len(lines):
+                                sub_line = lines[m]
+                                sub_stripped = sub_line.strip()
+                                sub_indent = len(sub_line) - len(sub_line.lstrip())
+                                if not sub_stripped or sub_stripped.startswith("#"):
+                                    m += 1
+                                    continue
+                                if sub_indent <= next_indent:
+                                    break
+                                sub_lines.append(sub_line)
+                                m += 1
+                            if sub_lines:
+                                sub_text = "\n".join(sub_lines)
+                                sub_result = _parse_simple_yaml(sub_text)
+                                nv = sub_result if sub_result else ""
+                            j = m - 1  # -1 because j += 1 below
                         nested[nk.strip()] = nv
                     j += 1
 
