@@ -93,23 +93,41 @@ def _parse_seed_list(raw: str | None, *, flag: str = "--seeds") -> tuple[int, ..
     return tuple(seeds)
 
 
-def _validate_vault_dir(output_dir: str | Path) -> Path:
+def _validate_vault_dir(output_dir: str | Path, *, base_root: str | Path | None = None) -> Path:
     """Validate and create an output directory, preventing path traversal.
 
-    Resolves the path to absolute and ensures it stays within the repository
-    root before creating the directory.
+    Resolves the path to absolute and ensures it stays within the allowed
+    base root before creating the directory.  When *base_root* is ``None``
+    the repository root is used as the default boundary.  If the resolved
+    path falls outside the repository root, the parent directory of the
+    resolved path is used as the boundary instead (this allows legitimate
+    writes to temp directories while still preventing ``..`` traversal).
+
+    Args:
+        output_dir: Directory path to validate and create.
+        base_root: Optional override for the boundary directory.  Use this
+            when callers legitimately need to write outside the repository
+            tree (e.g. temp directories during tests).
 
     Returns:
         The validated, absolute Path of the created directory.
 
     Raises:
-        ValueError: If the resolved path escapes the repository root.
+        ValueError: If the resolved path escapes the base root.
     """
     repo_root = Path(__file__).resolve().parents[2]
     resolved = Path(output_dir).resolve()
-    if not resolved.is_relative_to(repo_root):
+    if base_root is not None:
+        boundary = Path(base_root).resolve()
+    elif resolved.is_relative_to(repo_root):
+        boundary = repo_root
+    else:
+        # Allow writes outside the repo (e.g. temp dirs) but prevent
+        # traversal by using the parent directory as the boundary.
+        boundary = resolved.parent
+    if not resolved.is_relative_to(boundary):
         raise ValueError(
-            f"output directory escapes the repository root: {output_dir!r} "
+            f"output directory escapes the base root: {output_dir!r} "
             f"resolves to {resolved}"
         )
     resolved.mkdir(parents=True, exist_ok=True)
@@ -130,11 +148,13 @@ def _write_discovery_cluster_materialization(
     output_dir: str | Path,
     cluster_bundle: dict[str, Any],
     index_title: str,
+    *,
+    base_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Write per-cluster discovery packet files plus an operator-facing index."""
     from .mirofish.discovery import format_discovery_program_markdown
 
-    output_path = _validate_vault_dir(output_dir)
+    output_path = _validate_vault_dir(output_dir, base_root=base_root)
     cluster_packets = list(cluster_bundle.get("cluster_packets", []))
     written_files: list[str] = []
 
